@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Plus,
   Search,
@@ -8,14 +8,17 @@ import {
   Download,
   Trash2,
   Edit2,
-  MoreHorizontal,
   Filter,
   Mail,
   X,
   Check,
   AlertCircle,
+  Loader2,
+  ChevronDown,
+  MoreVertical,
+  UserPlus,
+  FileSpreadsheet,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 export type Contact = {
   id: number;
@@ -24,82 +27,34 @@ export type Contact = {
   lastName: string;
   company: string;
   tags: string[];
-  status: string;
+  status: "active" | "unsubscribed" | "bounced";
   createdAt: string;
 };
 
 const initialContacts: Contact[] = [
-  {
-    id: 1,
-    email: "john@example.com",
-    firstName: "John",
-    lastName: "Doe",
-    company: "Acme Inc",
-    tags: ["customer", "vip"],
-    status: "active",
-    createdAt: "2026-04-10",
-  },
-  {
-    id: 2,
-    email: "jane@example.com",
-    firstName: "Jane",
-    lastName: "Smith",
-    company: "Tech Corp",
-    tags: ["subscriber"],
-    status: "active",
-    createdAt: "2026-04-11",
-  },
-  {
-    id: 3,
-    email: "bob@example.com",
-    firstName: "Bob",
-    lastName: "Johnson",
-    company: "StartupXYZ",
-    tags: ["lead"],
-    status: "unsubscribed",
-    createdAt: "2026-04-12",
-  },
-  {
-    id: 4,
-    email: "alice@example.com",
-    firstName: "Alice",
-    lastName: "Williams",
-    company: "Design Co",
-    tags: ["customer"],
-    status: "active",
-    createdAt: "2026-04-13",
-  },
-  {
-    id: 5,
-    email: "charlie@example.com",
-    firstName: "Charlie",
-    lastName: "Brown",
-    company: "Marketing Pro",
-    tags: ["subscriber", "lead"],
-    status: "bounced",
-    createdAt: "2026-04-14",
-  },
+  { id: 1, email: "john@example.com", firstName: "John", lastName: "Doe", company: "Acme Inc", tags: ["customer", "vip"], status: "active", createdAt: "Apr 10, 2026" },
+  { id: 2, email: "jane@example.com", firstName: "Jane", lastName: "Smith", company: "Tech Corp", tags: ["subscriber"], status: "active", createdAt: "Apr 11, 2026" },
+  { id: 3, email: "bob@example.com", firstName: "Bob", lastName: "Johnson", company: "StartupXYZ", tags: ["lead"], status: "unsubscribed", createdAt: "Apr 12, 2026" },
+  { id: 4, email: "alice@example.com", firstName: "Alice", lastName: "Williams", company: "Design Co", tags: ["customer"], status: "active", createdAt: "Apr 13, 2026" },
+  { id: 5, email: "charlie@example.com", firstName: "Charlie", lastName: "Brown", company: "Marketing Pro", tags: ["subscriber", "lead"], status: "bounced", createdAt: "Apr 14, 2026" },
+  { id: 6, email: "sarah@example.com", firstName: "Sarah", lastName: "Davis", company: "Media Group", tags: ["customer", "active"], status: "active", createdAt: "Apr 14, 2026" },
+  { id: 7, email: "mike@example.com", firstName: "Mike", lastName: "Wilson", company: "Finance LLC", tags: ["lead"], status: "active", createdAt: "Apr 13, 2026" },
+  { id: 8, email: "emma@example.com", firstName: "Emma", lastName: "Taylor", company: "Creative Studio", tags: ["subscriber", "vip"], status: "active", createdAt: "Apr 12, 2026" },
 ];
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>(initialContacts);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedContacts, setSelectedContacts] = useState<number[]>([]);
+  const [selectedContacts, setSelectedContacts] = useState<Set<number>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [newContact, setNewContact] = useState({
-    email: "",
-    firstName: "",
-    lastName: "",
-    company: "",
-    tags: "",
-  });
+  const [newContact, setNewContact] = useState({ email: "", firstName: "", lastName: "", company: "", tags: "" });
   const [importFile, setImportFile] = useState<string | null>(null);
   const [importData, setImportData] = useState<Contact[]>([]);
-  const [notification, setNotification] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedDropdown, setSelectedDropdown] = useState<number | null>(null);
 
   const filteredContacts = contacts.filter(
     (c) =>
@@ -110,489 +65,573 @@ export default function ContactsPage() {
   );
 
   const activeCount = contacts.filter((c) => c.status === "active").length;
-  const unsubscribedCount = contacts.filter(
-    (c) => c.status === "unsubscribed"
-  ).length;
+  const unsubscribedCount = contacts.filter((c) => c.status === "unsubscribed").length;
   const bouncedCount = contacts.filter((c) => c.status === "bounced").length;
 
-  const showNotification = (type: "success" | "error", message: string) => {
-    setNotification({ type, message });
-    setTimeout(() => setNotification(null), 3000);
+  const showToast = useCallback((type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  const toggleSelect = (id: number) => {
+    setSelectedContacts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedContacts.size === filteredContacts.length) {
+      setSelectedContacts(new Set());
+    } else {
+      setSelectedContacts(new Set(filteredContacts.map((c) => c.id)));
+    }
   };
 
   const handleAddContact = async () => {
-    if (!newContact.email) {
-      showNotification("error", "Email is required");
+    if (!newContact.email.trim()) {
+      showToast("error", "Email address is required");
       return;
     }
 
+    setIsSubmitting(true);
+
+    // Simulate async operation
+    await new Promise((r) => setTimeout(r, 500));
+
     const contact: Contact = {
       id: Date.now(),
-      email: newContact.email,
-      firstName: newContact.firstName,
-      lastName: newContact.lastName,
-      company: newContact.company,
-      tags: newContact.tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
+      email: newContact.email.trim().toLowerCase(),
+      firstName: newContact.firstName.trim(),
+      lastName: newContact.lastName.trim(),
+      company: newContact.company.trim(),
+      tags: newContact.tags.split(",").map((t) => t.trim()).filter(Boolean),
       status: "active",
-      createdAt: new Date().toISOString().split("T")[0],
+      createdAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
     };
 
-    setContacts([...contacts, contact]);
+    setContacts([contact, ...contacts]);
     setNewContact({ email: "", firstName: "", lastName: "", company: "", tags: "" });
     setShowAddModal(false);
-    showNotification("success", "Contact added successfully!");
-
-    // Try to save to Supabase (will fail gracefully if not configured)
-    try {
-      await supabase.from("contacts").insert({
-        email: contact.email,
-        first_name: contact.firstName,
-        last_name: contact.lastName,
-        company: contact.company,
-        tags: contact.tags,
-        status: contact.status,
-      });
-    } catch (e) {
-      console.log("Supabase not configured, contact saved locally");
-    }
+    setIsSubmitting(false);
+    showToast("success", `${contact.firstName || contact.email} added successfully`);
   };
 
-  const handleDeleteContact = (id: number) => {
+  const handleDeleteSelected = async () => {
+    setIsSubmitting(true);
+    await new Promise((r) => setTimeout(r, 300));
+    setContacts(contacts.filter((c) => !selectedContacts.has(c.id)));
+    const count = selectedContacts.size;
+    setSelectedContacts(new Set());
+    setDeleteConfirm(false);
+    setIsSubmitting(false);
+    showToast("success", `${count} contact${count > 1 ? "s" : ""} deleted`);
+  };
+
+  const handleDeleteSingle = async (id: number) => {
+    const contact = contacts.find((c) => c.id === id);
     setContacts(contacts.filter((c) => c.id !== id));
-    setSelectedContacts(selectedContacts.filter((i) => i !== id));
-    showNotification("success", "Contact deleted");
-  };
-
-  const handleBulkDelete = () => {
-    setContacts(contacts.filter((c) => !selectedContacts.includes(c.id)));
-    showNotification("success", `${selectedContacts.length} contacts deleted`);
-    setSelectedContacts([]);
+    setSelectedContacts((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    showToast("success", `${contact?.email} deleted`);
   };
 
   const handleExport = () => {
     const headers = ["Email", "First Name", "Last Name", "Company", "Tags", "Status"];
-    const rows = contacts.map((c) => [
-      c.email,
-      c.firstName,
-      c.lastName,
-      c.company,
-      c.tags.join(", "),
-      c.status,
-    ]);
+    const rows = (selectedContacts.size > 0
+      ? contacts.filter((c) => selectedContacts.has(c.id))
+      : contacts
+    ).map((c) => [c.email, c.firstName, c.lastName, c.company, c.tags.join("; "), c.status]);
 
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${v}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `contacts-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showNotification("success", "Contacts exported successfully!");
+    showToast("success", `${rows.length} contacts exported`);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
       const lines = text.split("\n").filter(Boolean);
-      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-
       const parsed: Contact[] = lines.slice(1).map((line, i) => {
-        const values = line.split(",").map((v) => v.trim());
-        const row: Record<string, string> = {};
-        headers.forEach((h, idx) => {
-          row[h] = values[idx] || "";
-        });
-
+        const values = line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
         return {
           id: Date.now() + i,
-          email: row.email || row["email address"] || "",
-          firstName: row["first name"] || row.firstname || "",
-          lastName: row["last name"] || row.lastname || "",
-          company: row.company || "",
-          tags: row.tags ? row.tags.split(";").map((t: string) => t.trim()) : [],
+          email: values[0] || "",
+          firstName: values[1] || "",
+          lastName: values[2] || "",
+          company: values[3] || "",
+          tags: values[4] ? values[4].split(";").map((t: string) => t.trim()) : [],
           status: "active",
-          createdAt: new Date().toISOString().split("T")[0],
+          createdAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
         };
       });
-
       setImportData(parsed);
       setImportFile(file.name);
     };
     reader.readAsText(file);
   };
 
-  const handleImport = () => {
-    setContacts([...contacts, ...importData]);
+  const handleImport = async () => {
+    setIsSubmitting(true);
+    await new Promise((r) => setTimeout(r, 500));
+    setContacts([...importData, ...contacts]);
+    const count = importData.length;
     setImportData([]);
     setImportFile(null);
     setShowImportModal(false);
-    showNotification("success", `${importData.length} contacts imported!`);
+    setIsSubmitting(false);
+    showToast("success", `${count} contacts imported from CSV`);
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Notification */}
-      {notification && (
-        <div
-          className={`fixed right-4 top-4 z-50 flex items-center gap-2 rounded-lg px-4 py-3 shadow-lg ${notification.type === "success"
-              ? "bg-green-500 text-white"
-              : "bg-red-500 text-white"
-            }`}
-        >
-          {notification.type === "success" ? (
-            <Check className="h-4 w-4" />
-          ) : (
-            <AlertCircle className="h-4 w-4" />
-          )}
-          <span className="text-sm font-medium">{notification.message}</span>
+    <div className="min-h-screen bg-gray-50/50">
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed right-4 top-4 z-[100] animate-in fade-in slide-in-from-top-2">
+          <div
+            className={`flex items-center gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm ${toast.type === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-red-200 bg-red-50 text-red-800"
+              }`}
+          >
+            {toast.type === "success" ? (
+              <Check className="h-5 w-5 text-emerald-600" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-red-600" />
+            )}
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button onClick={() => setToast(null)} className="ml-2 rounded p-1 hover:bg-black/5">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Header */}
-      <div className="border-b border-gray-200 bg-white px-8 py-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Contacts</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Manage your subscribers and contacts
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-xl">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+              <Trash2 className="h-6 w-6 text-red-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900">Delete Contacts</h3>
+            <p className="mt-2 text-sm text-gray-500">
+              Are you sure you want to delete {selectedContacts.size} contact{selectedContacts.size > 1 ? "s" : ""}? This action cannot be undone.
             </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(false)}
+                className="flex-1 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteSelected}
+                disabled={isSubmitting}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Upload className="h-4 w-4" />
-              Import
-            </button>
-            <button
-              onClick={handleExport}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Download className="h-4 w-4" />
-              Export
-            </button>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              <Plus className="h-4 w-4" />
-              Add Contact
-            </button>
+        </div>
+      )}
+
+      {/* Page Header */}
+      <div className="border-b border-gray-200 bg-white">
+        <div className="px-6 py-5 lg:px-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900">Contacts</h1>
+              <p className="mt-1 text-sm text-gray-500">
+                Manage your subscribers and build your audience
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all"
+              >
+                <Upload className="h-4 w-4" />
+                <span className="hidden sm:inline">Import</span>
+              </button>
+              <button
+                onClick={handleExport}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all"
+              >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 shadow-sm transition-all"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add Contact</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="p-8">
+      <div className="px-6 py-6 lg:px-8">
         {/* Stats Cards */}
-        <div className="mb-6 grid gap-4 sm:grid-cols-4">
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-sm text-gray-500">Total Contacts</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">
-              {contacts.length.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-sm text-gray-500">Active</p>
-            <p className="mt-1 text-2xl font-bold text-green-600">
-              {activeCount.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-sm text-gray-500">Unsubscribed</p>
-            <p className="mt-1 text-2xl font-bold text-yellow-600">
-              {unsubscribedCount.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-lg border border-gray-200 bg-white p-4">
-            <p className="text-sm text-gray-500">Bounced</p>
-            <p className="mt-1 text-2xl font-bold text-red-600">
-              {bouncedCount.toLocaleString()}
-            </p>
-          </div>
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            { label: "Total Contacts", value: contacts.length, color: "text-gray-900" },
+            { label: "Active", value: activeCount, color: "text-emerald-600" },
+            { label: "Unsubscribed", value: unsubscribedCount, color: "text-amber-600" },
+            { label: "Bounced", value: bouncedCount, color: "text-red-600" },
+          ].map((stat) => (
+            <div key={stat.label} className="rounded-xl border border-gray-200 bg-white px-5 py-4 hover:border-gray-300 transition-colors">
+              <p className="text-sm font-medium text-gray-500">{stat.label}</p>
+              <p className={`mt-1 text-3xl font-semibold tabular-nums ${stat.color}`}>
+                {stat.value.toLocaleString()}
+              </p>
+            </div>
+          ))}
         </div>
 
-        {/* Bulk Actions */}
-        {selectedContacts.length > 0 && (
-          <div className="mb-4 flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2">
-            <span className="text-sm text-blue-700">
-              {selectedContacts.length} selected
-            </span>
-            <button
-              onClick={handleBulkDelete}
-              className="inline-flex items-center gap-1 text-sm font-medium text-red-600 hover:text-red-700"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </button>
-          </div>
-        )}
-
-        {/* Filters */}
-        <div className="mb-4 flex items-center gap-3">
+        {/* Search + Filter Bar */}
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Search contacts..."
+              placeholder="Search by name, email, or company..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full rounded-xl border border-gray-300 py-2.5 pl-10 pr-4 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
             />
           </div>
-          <button className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+          <button className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all">
             <Filter className="h-4 w-4" />
-            Filter
+            Filters
+            <ChevronDown className="h-4 w-4 text-gray-400" />
           </button>
         </div>
 
+        {/* Bulk Selection Bar */}
+        {selectedContacts.size > 0 && (
+          <div className="mb-4 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleSelectAll}
+                className="flex h-8 w-8 items-center justify-center rounded-md border-2 border-blue-400 bg-blue-500 text-white transition-all"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+              <span className="text-sm font-medium text-blue-900">
+                {selectedContacts.size} contact{selectedContacts.size > 1 ? "s" : ""} selected
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedContacts(new Set())}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+              >
+                Deselect
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Contacts Table */}
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedContacts(contacts.map((c) => c.id));
-                      } else {
-                        setSelectedContacts([]);
-                      }
-                    }}
-                    checked={
-                      selectedContacts.length === contacts.length &&
-                      contacts.length > 0
-                    }
-                  />
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Contact
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Company
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Tags
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Added
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredContacts.map((contact) => (
-                <tr key={contact.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                      checked={selectedContacts.includes(contact.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedContacts([
-                            ...selectedContacts,
-                            contact.id,
-                          ]);
-                        } else {
-                          setSelectedContacts(
-                            selectedContacts.filter((id) => id !== contact.id)
-                          );
-                        }
-                      }}
-                    />
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-200 text-sm font-medium text-gray-600">
-                        {contact.firstName?.[0]}
-                        {contact.lastName?.[0]}
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {contact.firstName} {contact.lastName}
-                        </p>
-                        <p className="text-sm text-gray-500">{contact.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {contact.company}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-1">
-                      {contact.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${contact.status === "active"
-                          ? "bg-green-100 text-green-800"
-                          : contact.status === "unsubscribed"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-red-100 text-red-800"
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50">
+                  <th className="w-12 px-5 py-3">
+                    <button
+                      onClick={toggleSelectAll}
+                      className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-all ${selectedContacts.size === filteredContacts.length && filteredContacts.length > 0
+                          ? "border-blue-500 bg-blue-500"
+                          : "border-gray-300 hover:border-gray-400"
                         }`}
                     >
-                      {contact.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {contact.createdAt}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button className="rounded p-1 text-gray-500 hover:bg-gray-100">
-                        <Mail className="h-4 w-4" />
-                      </button>
-                      <button className="rounded p-1 text-gray-500 hover:bg-gray-100">
-                        <Edit2 className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteContact(contact.id)}
-                        className="rounded p-1 text-red-500 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
+                      {selectedContacts.size === filteredContacts.length && filteredContacts.length > 0 && (
+                        <Check className="h-3.5 w-3.5 text-white" />
+                      )}
+                    </button>
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    Contact
+                  </th>
+                  <th className="hidden px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 md:table-cell">
+                    Company
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    Tags
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    Status
+                  </th>
+                  <th className="hidden px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 lg:table-cell">
+                    Added
+                  </th>
+                  <th className="w-12 px-5 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filteredContacts.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-16 text-center">
+                      <div className="flex flex-col items-center">
+                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+                          <Mail className="h-6 w-6 text-gray-400" />
+                        </div>
+                        <p className="text-sm font-medium text-gray-500">No contacts found</p>
+                        <p className="mt-1 text-xs text-gray-400">
+                          {searchQuery ? "Try adjusting your search" : "Add your first contact to get started"}
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredContacts.map((contact) => {
+                    const isSelected = selectedContacts.has(contact.id);
+                    return (
+                      <tr
+                        key={contact.id}
+                        className={`group transition-colors ${isSelected ? "bg-blue-50/50" : "hover:bg-gray-50/80"
+                          }`}
+                      >
+                        <td className="px-5 py-3.5">
+                          <button
+                            onClick={() => toggleSelect(contact.id)}
+                            className={`flex h-5 w-5 items-center justify-center rounded border-2 transition-all ${isSelected
+                                ? "border-blue-500 bg-blue-500"
+                                : "border-gray-300 group-hover:border-gray-400"
+                              }`}
+                          >
+                            {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
+                          </button>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-sm font-semibold text-white shadow-sm">
+                              {(contact.firstName?.[0] || contact.email[0]).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-gray-900">
+                                {contact.firstName} {contact.lastName}
+                              </p>
+                              <p className="truncate text-sm text-gray-500">{contact.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="hidden px-5 py-3.5 text-sm text-gray-500 md:table-cell">
+                          {contact.company || "—"}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex flex-wrap gap-1.5">
+                            {contact.tags.slice(0, 2).map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {contact.tags.length > 2 && (
+                              <span className="inline-flex rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+                                +{contact.tags.length - 2}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${contact.status === "active"
+                                ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20"
+                                : contact.status === "unsubscribed"
+                                  ? "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20"
+                                  : "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20"
+                              }`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${contact.status === "active" ? "bg-emerald-500" : contact.status === "unsubscribed" ? "bg-amber-500" : "bg-red-500"
+                              }`} />
+                            {contact.status}
+                          </span>
+                        </td>
+                        <td className="hidden px-5 py-3.5 text-sm text-gray-500 lg:table-cell">
+                          {contact.createdAt}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="relative">
+                            <button
+                              onClick={() => setSelectedDropdown(selectedDropdown === contact.id ? null : contact.id)}
+                              className="rounded-lg p-1.5 text-gray-400 opacity-0 hover:bg-gray-100 hover:text-gray-600 transition-all group-hover:opacity-100"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </button>
+                            {selectedDropdown === contact.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setSelectedDropdown(null)} />
+                                <div className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-gray-200 bg-white py-1 shadow-lg">
+                                  <button className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                    <Mail className="h-4 w-4" />
+                                    Send Email
+                                  </button>
+                                  <button className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                    <Edit2 className="h-4 w-4" />
+                                    Edit
+                                  </button>
+                                  <div className="my-1 border-t border-gray-100" />
+                                  <button
+                                    onClick={() => { handleDeleteSingle(contact.id); setSelectedDropdown(null); }}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-        {/* Pagination */}
-        <div className="mt-4 flex items-center justify-between">
-          <p className="text-sm text-gray-500">
-            Showing {filteredContacts.length} of {contacts.length} contacts
-          </p>
+          {/* Footer */}
+          {filteredContacts.length > 0 && (
+            <div className="flex items-center justify-between border-t border-gray-100 px-5 py-3">
+              <p className="text-sm text-gray-500">
+                Showing <span className="font-medium text-gray-700">{filteredContacts.length}</span> of{" "}
+                <span className="font-medium text-gray-700">{contacts.length}</span> contacts
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Add Contact Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Add Contact
-              </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+                  <UserPlus className="h-5 w-5 text-blue-600" />
+                </div>
+                <h2 className="text-lg font-semibold text-gray-900">Add Contact</h2>
+              </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="rounded p-1 text-gray-500 hover:bg-gray-100"
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Email *
-                </label>
-                <input
-                  type="email"
-                  value={newContact.email}
-                  onChange={(e) =>
-                    setNewContact({ ...newContact, email: e.target.value })
-                  }
-                  placeholder="contact@example.com"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+            <div className="px-6 py-5">
+              <div className="space-y-4">
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    First Name
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                    Email <span className="text-red-500">*</span>
                   </label>
                   <input
+                    type="email"
+                    value={newContact.email}
+                    onChange={(e) => setNewContact({ ...newContact, email: e.target.value })}
+                    placeholder="contact@example.com"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    autoFocus
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">First Name</label>
+                    <input
+                      type="text"
+                      value={newContact.firstName}
+                      onChange={(e) => setNewContact({ ...newContact, firstName: e.target.value })}
+                      placeholder="John"
+                      className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-sm font-medium text-gray-700">Last Name</label>
+                    <input
+                      type="text"
+                      value={newContact.lastName}
+                      onChange={(e) => setNewContact({ ...newContact, lastName: e.target.value })}
+                      placeholder="Doe"
+                      className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Company</label>
+                  <input
                     type="text"
-                    value={newContact.firstName}
-                    onChange={(e) =>
-                      setNewContact({ ...newContact, firstName: e.target.value })
-                    }
-                    placeholder="John"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={newContact.company}
+                    onChange={(e) => setNewContact({ ...newContact, company: e.target.value })}
+                    placeholder="Acme Inc"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-sm font-medium text-gray-700">
-                    Last Name
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                    Tags <span className="text-gray-400 font-normal">(comma separated)</span>
                   </label>
                   <input
                     type="text"
-                    value={newContact.lastName}
-                    onChange={(e) =>
-                      setNewContact({ ...newContact, lastName: e.target.value })
-                    }
-                    placeholder="Doe"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={newContact.tags}
+                    onChange={(e) => setNewContact({ ...newContact, tags: e.target.value })}
+                    placeholder="customer, vip, lead"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
                   />
                 </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Company
-                </label>
-                <input
-                  type="text"
-                  value={newContact.company}
-                  onChange={(e) =>
-                    setNewContact({ ...newContact, company: e.target.value })
-                  }
-                  placeholder="Acme Inc"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">
-                  Tags (comma separated)
-                </label>
-                <input
-                  type="text"
-                  value={newContact.tags}
-                  onChange={(e) =>
-                    setNewContact({ ...newContact, tags: e.target.value })
-                  }
-                  placeholder="customer, vip"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="flex-1 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddContact}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                disabled={isSubmitting || !newContact.email.trim()}
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Add Contact
+                {isSubmitting ? (
+                  <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+                ) : (
+                  "Add Contact"
+                )}
               </button>
             </div>
           </div>
@@ -601,104 +640,95 @@ export default function ContactsPage() {
 
       {/* Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Import Contacts
-              </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100">
+                  <FileSpreadsheet className="h-5 w-5 text-purple-600" />
+                </div>
+                <h2 className="text-lg font-semibold text-gray-900">Import Contacts</h2>
+              </div>
               <button
-                onClick={() => {
-                  setShowImportModal(false);
-                  setImportData([]);
-                  setImportFile(null);
-                }}
-                className="rounded p-1 text-gray-500 hover:bg-gray-100"
+                onClick={() => { setShowImportModal(false); setImportData([]); setImportFile(null); }}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
-
-            {!importFile ? (
-              <div>
-                <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 p-8 hover:border-primary">
-                  <Upload className="mb-3 h-8 w-8 text-gray-400" />
+            <div className="px-6 py-5">
+              {!importFile ? (
+                <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 p-10 hover:border-blue-400 hover:bg-blue-50/30 transition-all">
+                  <Upload className="mb-3 h-10 w-10 text-gray-400" />
                   <p className="text-sm font-medium text-gray-700">
-                    Click to upload CSV
+                    Click to upload a CSV file
                   </p>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-400">
                     Columns: email, first name, last name, company, tags
                   </p>
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
+                  <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
                 </label>
-              </div>
-            ) : (
-              <div>
-                <div className="mb-4 rounded-lg bg-green-50 p-4">
-                  <p className="text-sm font-medium text-green-700">
-                    {importData.length} contacts found in {importFile}
-                  </p>
-                </div>
-                <div className="mb-4 max-h-60 overflow-y-auto rounded-lg border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                          Email
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                          Name
-                        </th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                          Company
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {importData.slice(0, 10).map((c) => (
-                        <tr key={c.id}>
-                          <td className="px-3 py-2">{c.email}</td>
-                          <td className="px-3 py-2">
-                            {c.firstName} {c.lastName}
-                          </td>
-                          <td className="px-3 py-2">{c.company}</td>
+              ) : (
+                <div>
+                  <div className="mb-4 rounded-xl bg-emerald-50 p-4">
+                    <div className="flex items-center gap-2">
+                      <Check className="h-5 w-5 text-emerald-600" />
+                      <p className="text-sm font-medium text-emerald-800">
+                        {importData.length} contacts found in <span className="font-semibold">{importFile}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mb-2 max-h-56 overflow-y-auto rounded-xl border border-gray-200">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Email</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Name</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {importData.slice(0, 8).map((c) => (
+                          <tr key={c.id}>
+                            <td className="px-3 py-2 text-gray-600">{c.email}</td>
+                            <td className="px-3 py-2 text-gray-500">{c.firstName} {c.lastName}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {importData.length > 8 && (
+                      <p className="px-3 py-2 text-xs text-gray-400">
+                        +{importData.length - 8} more contacts
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-
-            <div className="mt-4 flex justify-end gap-3">
+              )}
+            </div>
+            <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
               {importFile ? (
                 <>
                   <button
-                    onClick={() => {
-                      setShowImportModal(false);
-                      setImportData([]);
-                      setImportFile(null);
-                    }}
-                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    onClick={() => { setShowImportModal(false); setImportData([]); setImportFile(null); }}
+                    className="flex-1 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleImport}
-                    className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                    disabled={isSubmitting}
+                    className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 shadow-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Import {importData.length} Contacts
+                    {isSubmitting ? (
+                      <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+                    ) : (
+                      `Import ${importData.length} Contacts`
+                    )}
                   </button>
                 </>
               ) : (
                 <button
-                  onClick={() => setShowImportModal(false)}
-                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  onClick={() => { setShowImportModal(false); setImportFile(null); }}
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
