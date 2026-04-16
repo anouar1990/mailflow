@@ -19,48 +19,59 @@ import {
   UserPlus,
   FileSpreadsheet,
 } from "lucide-react";
+import Papa from "papaparse";
 
 export type Contact = {
-  id: number;
+  id: string; // Updated to match UUID from DB
   email: string;
-  firstName: string;
-  lastName: string;
+  first_name: string;
+  last_name: string;
   company: string;
   tags: string[];
-  status: "active" | "unsubscribed" | "bounced";
-  createdAt: string;
+  status: "active" | "unsubscribed" | "bounced" | "complained";
+  created_at: string;
+  user_id?: string;
 };
 
-const initialContacts: Contact[] = [
-  { id: 1, email: "john@example.com", firstName: "John", lastName: "Doe", company: "Acme Inc", tags: ["customer", "vip"], status: "active", createdAt: "Apr 10, 2026" },
-  { id: 2, email: "jane@example.com", firstName: "Jane", lastName: "Smith", company: "Tech Corp", tags: ["subscriber"], status: "active", createdAt: "Apr 11, 2026" },
-  { id: 3, email: "bob@example.com", firstName: "Bob", lastName: "Johnson", company: "StartupXYZ", tags: ["lead"], status: "unsubscribed", createdAt: "Apr 12, 2026" },
-  { id: 4, email: "alice@example.com", firstName: "Alice", lastName: "Williams", company: "Design Co", tags: ["customer"], status: "active", createdAt: "Apr 13, 2026" },
-  { id: 5, email: "charlie@example.com", firstName: "Charlie", lastName: "Brown", company: "Marketing Pro", tags: ["subscriber", "lead"], status: "bounced", createdAt: "Apr 14, 2026" },
-  { id: 6, email: "sarah@example.com", firstName: "Sarah", lastName: "Davis", company: "Media Group", tags: ["customer", "active"], status: "active", createdAt: "Apr 14, 2026" },
-  { id: 7, email: "mike@example.com", firstName: "Mike", lastName: "Wilson", company: "Finance LLC", tags: ["lead"], status: "active", createdAt: "Apr 13, 2026" },
-  { id: 8, email: "emma@example.com", firstName: "Emma", lastName: "Taylor", company: "Creative Studio", tags: ["subscriber", "vip"], status: "active", createdAt: "Apr 12, 2026" },
-];
+import { createClient } from "@/lib/supabase/client";
 
 export default function ContactsPage() {
-  const [contacts, setContacts] = useState<Contact[]>(initialContacts);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedContacts, setSelectedContacts] = useState<Set<number>>(new Set());
+  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [newContact, setNewContact] = useState({ email: "", firstName: "", lastName: "", company: "", tags: "" });
+  const [newContact, setNewContact] = useState({ email: "", first_name: "", last_name: "", company: "", tags: "" });
   const [importFile, setImportFile] = useState<string | null>(null);
-  const [importData, setImportData] = useState<Contact[]>([]);
+  const [importData, setImportData] = useState<any[]>([]);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedDropdown, setSelectedDropdown] = useState<number | null>(null);
+  const [selectedDropdown, setSelectedDropdown] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const supabase = createClient();
+
+  useState(() => {
+    async function loadContacts() {
+      setIsLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+        const { data } = await supabase.from("contacts").select("*").order("created_at", { ascending: false });
+        if (data) setContacts(data as Contact[]);
+      }
+      setIsLoading(false);
+    }
+    loadContacts();
+  });
 
   const filteredContacts = contacts.filter(
     (c) =>
       c.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.firstName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.lastName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.last_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.company?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -73,7 +84,7 @@ export default function ContactsPage() {
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (id: string) => {
     setSelectedContacts((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -98,39 +109,58 @@ export default function ContactsPage() {
 
     setIsSubmitting(true);
 
-    // Simulate async operation
-    await new Promise((r) => setTimeout(r, 500));
-
-    const contact: Contact = {
-      id: Date.now(),
+    const contactData = {
       email: newContact.email.trim().toLowerCase(),
-      firstName: newContact.firstName.trim(),
-      lastName: newContact.lastName.trim(),
+      first_name: newContact.first_name.trim(),
+      last_name: newContact.last_name.trim(),
       company: newContact.company.trim(),
       tags: newContact.tags.split(",").map((t) => t.trim()).filter(Boolean),
       status: "active",
-      createdAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+      user_id: userId,
     };
 
-    setContacts([contact, ...contacts]);
-    setNewContact({ email: "", firstName: "", lastName: "", company: "", tags: "" });
-    setShowAddModal(false);
+    const { data: insertedContact, error } = await supabase.from("contacts").insert(contactData).select().single();
+
     setIsSubmitting(false);
-    showToast("success", `${contact.firstName || contact.email} added successfully`);
+
+    if (error) {
+      showToast("error", "Failed to add contact. Note: Email may already exist.");
+      return;
+    }
+
+    setContacts([insertedContact as Contact, ...contacts]);
+    setNewContact({ email: "", first_name: "", last_name: "", company: "", tags: "" });
+    setShowAddModal(false);
+    showToast("success", `${insertedContact.first_name || insertedContact.email} added successfully`);
   };
 
   const handleDeleteSelected = async () => {
     setIsSubmitting(true);
-    await new Promise((r) => setTimeout(r, 300));
+    const idsToDelete = Array.from(selectedContacts);
+    
+    const { error } = await supabase.from("contacts").delete().in("id", idsToDelete);
+    
+    setIsSubmitting(false);
+
+    if (error) {
+       showToast("error", "Failed to delete contacts.");
+       return;
+    }
+
     setContacts(contacts.filter((c) => !selectedContacts.has(c.id)));
     const count = selectedContacts.size;
     setSelectedContacts(new Set());
     setDeleteConfirm(false);
-    setIsSubmitting(false);
     showToast("success", `${count} contact${count > 1 ? "s" : ""} deleted`);
   };
 
-  const handleDeleteSingle = async (id: number) => {
+  const handleDeleteSingle = async (id: string) => {
+    const { error } = await supabase.from("contacts").delete().eq("id", id);
+    if (error) {
+       showToast("error", "Failed to delete contact.");
+       return;
+    }
+
     const contact = contacts.find((c) => c.id === id);
     setContacts(contacts.filter((c) => c.id !== id));
     setSelectedContacts((prev) => {
@@ -146,7 +176,7 @@ export default function ContactsPage() {
     const rows = (selectedContacts.size > 0
       ? contacts.filter((c) => selectedContacts.has(c.id))
       : contacts
-    ).map((c) => [c.email, c.firstName, c.lastName, c.company, c.tags.join("; "), c.status]);
+    ).map((c) => [c.email, c.first_name, c.last_name, c.company, c.tags?.join("; ") || "", c.status]);
 
     const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${v}"`).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -162,38 +192,55 @@ export default function ContactsPage() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split("\n").filter(Boolean);
-      const parsed: Contact[] = lines.slice(1).map((line, i) => {
-        const values = line.split(",").map((v) => v.trim().replace(/^"|"$/g, ""));
-        return {
-          id: Date.now() + i,
-          email: values[0] || "",
-          firstName: values[1] || "",
-          lastName: values[2] || "",
-          company: values[3] || "",
-          tags: values[4] ? values[4].split(";").map((t: string) => t.trim()) : [],
-          status: "active",
-          createdAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        };
-      });
-      setImportData(parsed);
-      setImportFile(file.name);
-    };
-    reader.readAsText(file);
+    
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const parsed: any[] = results.data.map((row: any) => {
+          return {
+            email: row.email || row.Email || "",
+            first_name: row.firstName || row["First Name"] || row.first_name || "",
+            last_name: row.lastName || row["Last Name"] || row.last_name || "",
+            company: row.company || row.Company || "",
+            tags: (row.tags || row.Tags) ? String(row.tags || row.Tags).split(";").map((t: string) => t.trim()) : [],
+            status: "active",
+            user_id: userId,
+          };
+        }).filter(c => c.email !== ""); // Filter out invalid rows with no email
+        
+        setImportData(parsed);
+        setImportFile(file.name);
+      },
+      error: (error) => {
+        showToast("error", `Failed to parse CSV: ${error.message}`);
+      }
+    });
   };
 
   const handleImport = async () => {
     setIsSubmitting(true);
-    await new Promise((r) => setTimeout(r, 500));
-    setContacts([...importData, ...contacts]);
+    
+    // Use upsert to handle existing emails
+    const { data: inserted, error } = await supabase.from("contacts").upsert(importData, { onConflict: "user_id,email" }).select();
+    
+    setIsSubmitting(false);
+
+    if (error) {
+      showToast("error", "Failed to import contacts");
+      return;
+    }
+
+    if (inserted) {
+        // Add only those that aren't already in state to prevent duplicates in UI if upserting
+        const newContacts = inserted.filter(i => !contacts.find(c => c.id === i.id));
+        setContacts([...newContacts, ...contacts]);
+    }
+    
     const count = importData.length;
     setImportData([]);
     setImportFile(null);
     setShowImportModal(false);
-    setIsSubmitting(false);
     showToast("success", `${count} contacts imported from CSV`);
   };
 
@@ -436,11 +483,11 @@ export default function ContactsPage() {
                         <td className="px-5 py-3.5">
                           <div className="flex items-center gap-3">
                             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600 text-sm font-semibold text-white shadow-sm">
-                              {(contact.firstName?.[0] || contact.email[0]).toUpperCase()}
+                              {(contact.first_name?.[0] || contact.email[0]).toUpperCase()}
                             </div>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-gray-900">
-                                {contact.firstName} {contact.lastName}
+                                {contact.first_name} {contact.last_name}
                               </p>
                               <p className="truncate text-sm text-gray-500">{contact.email}</p>
                             </div>
@@ -451,7 +498,7 @@ export default function ContactsPage() {
                         </td>
                         <td className="px-5 py-3.5">
                           <div className="flex flex-wrap gap-1.5">
-                            {contact.tags.slice(0, 2).map((tag) => (
+                            {(contact.tags || []).slice(0, 2).map((tag) => (
                               <span
                                 key={tag}
                                 className="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600"
@@ -459,9 +506,9 @@ export default function ContactsPage() {
                                 {tag}
                               </span>
                             ))}
-                            {contact.tags.length > 2 && (
+                            {(contact.tags || []).length > 2 && (
                               <span className="inline-flex rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-                                +{contact.tags.length - 2}
+                                +{(contact.tags || []).length - 2}
                               </span>
                             )}
                           </div>
@@ -481,7 +528,7 @@ export default function ContactsPage() {
                           </span>
                         </td>
                         <td className="hidden px-5 py-3.5 text-sm text-gray-500 lg:table-cell">
-                          {contact.createdAt}
+                          {new Date(contact.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                         </td>
                         <td className="px-5 py-3.5">
                           <div className="relative">

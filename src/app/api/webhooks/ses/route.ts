@@ -67,6 +67,11 @@ export async function POST(req: NextRequest) {
             break;
           case "Complaint":
             newStatus = "complained";
+            // Also update contact status to prevent future emails to complaining users
+            await supabaseAdmin
+              .from("contacts")
+              .update({ status: "complained" })
+              .eq("id", campaignContact.contact_id);
             break;
           case "Unsubscribe":
             newStatus = "unsubscribed";

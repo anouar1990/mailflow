@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save, Send, Eye, Users, Clock } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function NewCampaignPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
+  const supabase = createClient();
+  const [segments, setSegments] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+
   const [campaign, setCampaign] = useState({
     name: "",
     subject: "",
@@ -20,23 +26,51 @@ export default function NewCampaignPage() {
     scheduledAt: "",
   });
 
-  const segments = [
-    { id: "all", name: "All Contacts", count: 12345 },
-    { id: "vip", name: "VIP Customers", count: 892 },
-    { id: "active", name: "Active Subscribers", count: 8450 },
-    { id: "new", name: "New Signups (30 days)", count: 1230 },
-  ];
-
-  const templates = [
-    { id: "welcome", name: "Welcome Email" },
-    { id: "newsletter", name: "Monthly Newsletter" },
-    { id: "promo", name: "Promotional" },
-    { id: "blank", name: "Blank Template" },
-  ];
+  useEffect(() => {
+    async function loadData() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+        const { data: segs } = await supabase.from("segments").select("*");
+        if (segs) setSegments(segs);
+        const { data: tmpls } = await supabase.from("templates").select("*");
+        if (tmpls) setTemplates(tmpls);
+      }
+    }
+    loadData();
+  }, []);
 
   const handleSend = async (immediate = false) => {
-    // In production: call API to send via SES
-    console.log("Sending campaign:", campaign, immediate ? "immediately" : "scheduled");
+    if (!campaign.name || !campaign.subject || !campaign.segmentId) {
+      alert("Please fill out Name, Subject, and select a Segment first.");
+      return;
+    }
+
+    const { error } = await supabase.from("campaigns").insert({
+        name: campaign.name,
+        subject: campaign.subject,
+        from_name: campaign.fromName || "Your Company",
+        from_email: campaign.fromEmail || "hello@example.com",
+        reply_to: campaign.replyTo || null,
+        template_id: campaign.templateId || null,
+        html_content: campaign.htmlContent || "",
+        text_content: campaign.textContent || "",
+        status: immediate ? "sending" : (campaign.scheduledAt ? "scheduled" : "draft"),
+        total_recipients: segments.find(s => s.id === campaign.segmentId)?.contact_count || 0,
+        total_sent: 0,
+        total_opened: 0,
+        total_clicked: 0,
+        total_bounced: 0,
+        total_unsubscribed: 0,
+        scheduled_at: campaign.scheduledAt || null,
+        user_id: userId
+    });
+
+    if (error) {
+        alert("Error saving campaign: " + error.message);
+        return;
+    }
+
     router.push("/dashboard/campaigns");
   };
 
@@ -235,7 +269,7 @@ export default function NewCampaignPage() {
                       </span>
                     </div>
                     <span className="text-sm text-gray-500">
-                      {segment.count.toLocaleString()} contacts
+                      {(segment.contact_count || 0).toLocaleString()} contacts
                     </span>
                     <input
                       type="radio"
@@ -329,8 +363,7 @@ export default function NewCampaignPage() {
                 <div className="flex justify-between border-b border-gray-100 py-3">
                   <span className="text-gray-500">Estimated Reach</span>
                   <span className="font-medium text-gray-900">
-                    {segments.find((s) => s.id === campaign.segmentId)?.count.toLocaleString() || 0}{" "}
-                    contacts
+                    {(segments.find((s) => s.id === campaign.segmentId)?.contact_count || 0).toLocaleString()} contacts
                   </span>
                 </div>
               </div>

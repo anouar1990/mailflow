@@ -16,98 +16,24 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 
-const campaigns = [
-  {
-    id: 1,
-    name: "Summer Sale 2026",
-    subject: "🌞 Hot Summer Deals - Up to 50% Off!",
-    status: "sent",
-    recipients: 5420,
-    sent: 5420,
-    opened: 2380,
-    clicked: 890,
-    bounced: 45,
-    unsubscribed: 12,
-    scheduledAt: null,
-    sentAt: "Apr 14, 2026 10:30 AM",
-    createdAt: "Apr 13, 2026",
-  },
-  {
-    id: 2,
-    name: "Welcome Series - Q2",
-    subject: "Welcome to our community!",
-    status: "sending",
-    recipients: 3500,
-    sent: 1230,
-    opened: 420,
-    clicked: 156,
-    bounced: 5,
-    unsubscribed: 2,
-    scheduledAt: null,
-    sentAt: null,
-    createdAt: "Apr 14, 2026",
-  },
-  {
-    id: 3,
-    name: "Product Launch Newsletter",
-    subject: "Introducing our latest innovation...",
-    status: "scheduled",
-    recipients: 8900,
-    sent: 0,
-    opened: 0,
-    clicked: 0,
-    bounced: 0,
-    unsubscribed: 0,
-    scheduledAt: "Apr 16, 2026 9:00 AM",
-    sentAt: null,
-    createdAt: "Apr 12, 2026",
-  },
-  {
-    id: 4,
-    name: "Monthly Digest - March",
-    subject: "Your March recap is here!",
-    status: "draft",
-    recipients: 0,
-    sent: 0,
-    opened: 0,
-    clicked: 0,
-    bounced: 0,
-    unsubscribed: 0,
-    scheduledAt: null,
-    sentAt: null,
-    createdAt: "Apr 13, 2026",
-  },
-  {
-    id: 5,
-    name: "Abandoned Cart Recovery",
-    subject: "You left something behind...",
-    status: "sent",
-    recipients: 890,
-    sent: 890,
-    opened: 520,
-    clicked: 310,
-    bounced: 8,
-    unsubscribed: 3,
-    scheduledAt: null,
-    sentAt: "Apr 13, 2026 2:15 PM",
-    createdAt: "Apr 13, 2026",
-  },
-  {
-    id: 6,
-    name: "Black Friday Preview",
-    subject: "Exclusive early access for VIPs",
-    status: "failed",
-    recipients: 2100,
-    sent: 0,
-    opened: 0,
-    clicked: 0,
-    bounced: 0,
-    unsubscribed: 0,
-    scheduledAt: null,
-    sentAt: null,
-    createdAt: "Apr 11, 2026",
-  },
-];
+import { createClient } from "@/lib/supabase/client";
+
+export type Campaign = {
+  id: string;
+  name: string;
+  subject: string;
+  status: "draft" | "scheduled" | "sending" | "sent" | "failed" | "cancelled";
+  total_recipients: number;
+  total_sent: number;
+  total_opened: number;
+  total_clicked: number;
+  total_bounced: number;
+  total_unsubscribed: number;
+  scheduled_at: string | null;
+  sent_at: string | null;
+  created_at: string;
+  user_id?: string;
+};
 
 const statusConfig: Record<
   string,
@@ -138,10 +64,34 @@ const statusConfig: Record<
     icon: <AlertCircle className="h-3 w-3" />,
     label: "Failed",
   },
+  cancelled: {
+    color: "bg-gray-100 text-gray-800",
+    icon: <AlertCircle className="h-3 w-3" />,
+    label: "Cancelled",
+  },
 };
 
 export default function CampaignsPage() {
   const [filter, setFilter] = useState<string>("all");
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const supabase = createClient();
+
+  useState(() => {
+    async function loadCampaigns() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from("campaigns").select("*").order("created_at", { ascending: false });
+        if (data) setCampaigns(data);
+      }
+    }
+    loadCampaigns();
+  });
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this campaign?")) return;
+    await supabase.from("campaigns").delete().eq("id", id);
+    setCampaigns(campaigns.filter((c) => c.id !== id));
+  };
 
   const filteredCampaigns =
     filter === "all"
@@ -194,12 +144,12 @@ export default function CampaignsPage() {
           {filteredCampaigns.map((campaign) => {
             const status = statusConfig[campaign.status];
             const openRate =
-              campaign.sent > 0
-                ? Math.round((campaign.opened / campaign.sent) * 100)
+              campaign.total_sent > 0
+                ? Math.round((campaign.total_opened / campaign.total_sent) * 100)
                 : 0;
             const clickRate =
-              campaign.sent > 0
-                ? Math.round((campaign.clicked / campaign.sent) * 100)
+              campaign.total_sent > 0
+                ? Math.round((campaign.total_clicked / campaign.total_sent) * 100)
                 : 0;
 
             return (
@@ -224,11 +174,11 @@ export default function CampaignsPage() {
                       {campaign.subject}
                     </p>
                     <div className="mt-3 flex items-center gap-4 text-sm text-gray-500">
-                      <span>Created: {campaign.createdAt}</span>
-                      {campaign.sentAt && <span>• Sent: {campaign.sentAt}</span>}
-                      {campaign.scheduledAt && (
+                      <span>Created: {new Date(campaign.created_at).toLocaleDateString()}</span>
+                      {campaign.sent_at && <span>• Sent: {new Date(campaign.sent_at).toLocaleDateString()}</span>}
+                      {campaign.scheduled_at && (
                         <span>
-                          • Scheduled: {campaign.scheduledAt}
+                          • Scheduled: {new Date(campaign.scheduled_at).toLocaleDateString()}
                         </span>
                       )}
                     </div>
@@ -247,7 +197,7 @@ export default function CampaignsPage() {
                     <button className="rounded-lg border border-gray-300 p-2 text-gray-500 hover:bg-gray-50">
                       <Copy className="h-4 w-4" />
                     </button>
-                    <button className="rounded-lg border border-gray-300 p-2 text-red-500 hover:bg-red-50">
+                    <button onClick={() => handleDelete(campaign.id)} className="rounded-lg border border-gray-300 p-2 text-red-500 hover:bg-red-50">
                       <Trash2 className="h-4 w-4" />
                     </button>
                     <button className="rounded-lg border border-gray-300 p-2 text-gray-500 hover:bg-gray-50">
@@ -262,13 +212,13 @@ export default function CampaignsPage() {
                     <div>
                       <p className="text-sm text-gray-500">Recipients</p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {campaign.recipients.toLocaleString()}
+                        {campaign.total_recipients.toLocaleString()}
                       </p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Sent</p>
                       <p className="mt-1 text-lg font-semibold text-gray-900">
-                        {campaign.sent.toLocaleString()}
+                        {campaign.total_sent.toLocaleString()}
                       </p>
                     </div>
                     <div>
@@ -276,7 +226,7 @@ export default function CampaignsPage() {
                       <div className="mt-1 flex items-center gap-1">
                         <Eye className="h-4 w-4 text-green-500" />
                         <p className="text-lg font-semibold text-gray-900">
-                          {campaign.opened.toLocaleString()} ({openRate}%)
+                          {campaign.total_opened.toLocaleString()} ({openRate}%)
                         </p>
                       </div>
                     </div>
@@ -285,14 +235,14 @@ export default function CampaignsPage() {
                       <div className="mt-1 flex items-center gap-1">
                         <MousePointerClick className="h-4 w-4 text-purple-500" />
                         <p className="text-lg font-semibold text-gray-900">
-                          {campaign.clicked.toLocaleString()} ({clickRate}%)
+                          {campaign.total_clicked.toLocaleString()} ({clickRate}%)
                         </p>
                       </div>
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Bounced</p>
                       <p className="mt-1 text-lg font-semibold text-red-600">
-                        {campaign.bounced}
+                        {campaign.total_bounced}
                       </p>
                     </div>
                   </div>
@@ -303,20 +253,20 @@ export default function CampaignsPage() {
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-500">Sending progress</span>
                       <span className="font-medium text-gray-900">
-                        {Math.round((campaign.sent / campaign.recipients) * 100)}%
+                        {campaign.total_recipients > 0 ? Math.round((campaign.total_sent / campaign.total_recipients) * 100) : 0}%
                       </span>
                     </div>
                     <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
                       <div
                         className="h-full rounded-full bg-blue-600 transition-all"
                         style={{
-                          width: `${(campaign.sent / campaign.recipients) * 100}%`,
+                          width: `${campaign.total_recipients > 0 ? (campaign.total_sent / campaign.total_recipients) * 100 : 0}%`,
                         }}
                       />
                     </div>
                     <p className="mt-1 text-xs text-gray-500">
-                      {campaign.sent.toLocaleString()} of{" "}
-                      {campaign.recipients.toLocaleString()} emails sent
+                      {campaign.total_sent.toLocaleString()} of{" "}
+                      {campaign.total_recipients.toLocaleString()} emails sent
                     </p>
                   </div>
                 )}

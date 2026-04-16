@@ -27,44 +27,10 @@ import {
   Area,
 } from "recharts";
 
-const monthlyData = [
-  { month: "Jan", sent: 25000, opened: 12500, clicked: 4200, unsubscribed: 45 },
-  { month: "Feb", sent: 28000, opened: 14000, clicked: 4800, unsubscribed: 52 },
-  { month: "Mar", sent: 32000, opened: 16000, clicked: 5400, unsubscribed: 38 },
-  { month: "Apr", sent: 45000, opened: 19800, clicked: 7200, unsubscribed: 42 },
-];
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 
-const topCampaigns = [
-  {
-    name: "Summer Sale 2026",
-    sent: 5420,
-    openRate: 43.9,
-    clickRate: 16.4,
-    unsubscribeRate: 0.2,
-  },
-  {
-    name: "Welcome Series - Q2",
-    sent: 3500,
-    openRate: 52.3,
-    clickRate: 24.1,
-    unsubscribeRate: 0.1,
-  },
-  {
-    name: "Abandoned Cart Recovery",
-    sent: 890,
-    openRate: 58.4,
-    clickRate: 34.8,
-    unsubscribeRate: 0.3,
-  },
-  {
-    name: "Product Launch",
-    sent: 8900,
-    openRate: 38.2,
-    clickRate: 12.5,
-    unsubscribeRate: 0.4,
-  },
-];
-
+// Keep static device and client data as these aren't captured entirely without third-party fingerprinters
 const deviceData = [
   { name: "Desktop", value: 52, color: "#3b82f6" },
   { name: "Mobile", value: 38, color: "#10b981" },
@@ -80,6 +46,90 @@ const clientData = [
 ];
 
 export default function AnalyticsPage() {
+  const [metrics, setMetrics] = useState({
+    totalSent: 0,
+    openRate: 0,
+    clickRate: 0,
+    unsubscribeRate: 0
+  });
+  
+  const [monthlyData, setMonthlyData] = useState<any[]>([]);
+  const [topCampaigns, setTopCampaigns] = useState<any[]>([]);
+  const supabase = createClient();
+
+  useEffect(() => {
+    async function loadAnalytics() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: campaigns } = await supabase
+        .from('campaigns')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!campaigns || campaigns.length === 0) return;
+
+      // Global Metrics
+      let sent = 0;
+      let opens = 0;
+      let clicks = 0;
+      let unsubscribes = 0;
+
+      campaigns.forEach(c => {
+        sent += c.total_sent || 0;
+        opens += c.total_opened || 0;
+        clicks += c.total_clicked || 0;
+        unsubscribes += c.total_unsubscribed || 0;
+      });
+
+      setMetrics({
+        totalSent: sent,
+        openRate: sent > 0 ? Number(((opens / sent) * 100).toFixed(1)) : 0,
+        clickRate: sent > 0 ? Number(((clicks / sent) * 100).toFixed(1)) : 0,
+        unsubscribeRate: sent > 0 ? Number(((unsubscribes / sent) * 100).toFixed(1)) : 0
+      });
+
+      // Top Campaigns
+      const ranked = [...campaigns]
+        .filter(c => c.total_sent > 0)
+        .map(c => ({
+          name: c.name,
+          sent: c.total_sent,
+          openRate: Number(((c.total_opened / c.total_sent) * 100).toFixed(1)),
+          clickRate: Number(((c.total_clicked / c.total_sent) * 100).toFixed(1)),
+          unsubscribeRate: Number(((c.total_unsubscribed / c.total_sent) * 100).toFixed(1))
+        }))
+        .sort((a, b) => b.openRate - a.openRate)
+        .slice(0, 5);
+
+      setTopCampaigns(ranked);
+
+      // Monthly Activity Mocked using actual limits (Group by month logic)
+      const months: Record<string, any> = {};
+      campaigns.forEach(c => {
+        const d = new Date(c.created_at);
+        const monthYear = d.toLocaleString('default', { month: 'short' });
+        if (!months[monthYear]) {
+          months[monthYear] = { month: monthYear, sent: 0, opened: 0, clicked: 0 };
+        }
+        months[monthYear].sent += c.total_sent || 0;
+        months[monthYear].opened += c.total_opened || 0;
+        months[monthYear].clicked += c.total_clicked || 0;
+      });
+      
+      const chartData = Object.values(months).map(m => ({
+        ...m,
+        openRate: m.sent > 0 ? Number(((m.opened / m.sent) * 100).toFixed(1)) : 0,
+        clickRate: m.sent > 0 ? Number(((m.clicked / m.sent) * 100).toFixed(1)) : 0
+      })).reverse(); // Reverse if descending order initially
+
+      setMonthlyData(chartData);
+    }
+    
+    loadAnalytics();
+  }, []);
+
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -106,8 +156,8 @@ export default function AnalyticsPage() {
               </span>
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold text-gray-900">45,678</p>
-              <p className="mt-1 text-sm text-gray-500">Total Sent (30d)</p>
+              <p className="text-2xl font-bold text-gray-900">{metrics.totalSent.toLocaleString()}</p>
+              <p className="mt-1 text-sm text-gray-500">Total Sent (All Time)</p>
             </div>
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-6">
@@ -121,8 +171,8 @@ export default function AnalyticsPage() {
               </span>
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold text-gray-900">42.3%</p>
-              <p className="mt-1 text-sm text-gray-500">Open Rate</p>
+              <p className="text-2xl font-bold text-gray-900">{metrics.openRate}%</p>
+              <p className="mt-1 text-sm text-gray-500">Aggregate Open Rate</p>
             </div>
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-6">
@@ -136,8 +186,8 @@ export default function AnalyticsPage() {
               </span>
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold text-gray-900">12.8%</p>
-              <p className="mt-1 text-sm text-gray-500">Click Rate</p>
+              <p className="text-2xl font-bold text-gray-900">{metrics.clickRate}%</p>
+              <p className="mt-1 text-sm text-gray-500">Aggregate Click Rate</p>
             </div>
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-6">
@@ -151,7 +201,7 @@ export default function AnalyticsPage() {
               </span>
             </div>
             <div className="mt-4">
-              <p className="text-2xl font-bold text-gray-900">0.4%</p>
+              <p className="text-2xl font-bold text-gray-900">{metrics.unsubscribeRate}%</p>
               <p className="mt-1 text-sm text-gray-500">Unsubscribe Rate</p>
             </div>
           </div>

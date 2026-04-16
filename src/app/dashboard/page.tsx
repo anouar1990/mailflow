@@ -24,89 +24,8 @@ import {
   Line,
 } from "recharts";
 
-const stats = [
-  {
-    name: "Total Contacts",
-    value: "12,345",
-    change: "+12%",
-    icon: Users,
-    color: "text-blue-600",
-    bgColor: "bg-blue-100",
-  },
-  {
-    name: "Active Campaigns",
-    value: "8",
-    change: "+2",
-    icon: Mail,
-    color: "text-purple-600",
-    bgColor: "bg-purple-100",
-  },
-  {
-    name: "Emails Sent",
-    value: "45,678",
-    change: "+18%",
-    icon: Send,
-    color: "text-green-600",
-    bgColor: "bg-green-100",
-  },
-  {
-    name: "Avg. Open Rate",
-    value: "42.3%",
-    change: "+5.2%",
-    icon: Eye,
-    color: "text-orange-600",
-    bgColor: "bg-orange-100",
-  },
-];
-
-const weeklyData = [
-  { name: "Mon", sent: 1200, opened: 580, clicked: 180 },
-  { name: "Tue", sent: 1800, opened: 920, clicked: 320 },
-  { name: "Wed", sent: 2100, opened: 1050, clicked: 410 },
-  { name: "Thu", sent: 1600, opened: 780, clicked: 260 },
-  { name: "Fri", sent: 1400, opened: 690, clicked: 220 },
-  { name: "Sat", sent: 800, opened: 420, clicked: 140 },
-  { name: "Sun", sent: 600, opened: 310, clicked: 95 },
-];
-
-const recentCampaigns = [
-  {
-    id: 1,
-    name: "Summer Sale 2026",
-    status: "sent",
-    sent: 5420,
-    opened: 2380,
-    clicked: 890,
-    date: "Apr 14, 2026",
-  },
-  {
-    id: 2,
-    name: "Welcome Series - Q2",
-    status: "sending",
-    sent: 1230,
-    opened: 420,
-    clicked: 156,
-    date: "Apr 14, 2026",
-  },
-  {
-    id: 3,
-    name: "Product Launch Newsletter",
-    status: "scheduled",
-    sent: 0,
-    opened: 0,
-    clicked: 0,
-    date: "Apr 16, 2026",
-  },
-  {
-    id: 4,
-    name: "Monthly Digest - March",
-    status: "draft",
-    sent: 0,
-    opened: 0,
-    clicked: 0,
-    date: "Apr 13, 2026",
-  },
-];
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 const statusColors: Record<string, string> = {
   sent: "bg-green-100 text-green-800",
@@ -114,9 +33,119 @@ const statusColors: Record<string, string> = {
   scheduled: "bg-yellow-100 text-yellow-800",
   draft: "bg-gray-100 text-gray-800",
   failed: "bg-red-100 text-red-800",
+  cancelled: "bg-gray-100 text-gray-800"
 };
 
 export default function DashboardPage() {
+  const [stats, setStats] = useState<any[]>([
+    {
+      name: "Total Contacts",
+      value: "...",
+      change: "",
+      icon: Users,
+      color: "text-blue-600",
+      bgColor: "bg-blue-100",
+    },
+    {
+      name: "Active Campaigns",
+      value: "...",
+      change: "",
+      icon: Mail,
+      color: "text-purple-600",
+      bgColor: "bg-purple-100",
+    },
+    {
+      name: "Emails Sent",
+      value: "...",
+      change: "",
+      icon: Send,
+      color: "text-green-600",
+      bgColor: "bg-green-100",
+    },
+    {
+      name: "Avg. Open Rate",
+      value: "...",
+      change: "",
+      icon: Eye,
+      color: "text-orange-600",
+      bgColor: "bg-orange-100",
+    },
+  ]);
+  
+  const [recentCampaigns, setRecentCampaigns] = useState<any[]>([]);
+  const [weeklyData, setWeeklyData] = useState<any[]>([]);
+  const supabase = createClient();
+
+  useEffect(() => {
+    async function loadDashboard() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { count: contactsCount } = await supabase.from("contacts").select("*", { count: "exact", head: true });
+      const { data: campaigns } = await supabase.from("campaigns").select("*").order("created_at", { ascending: false });
+
+      let sent = 0;
+      let opens = 0;
+      let active = 0;
+
+      if (campaigns) {
+        campaigns.forEach(c => {
+          sent += c.total_sent || 0;
+          opens += c.total_opened || 0;
+          if (["draft", "scheduled", "sending"].includes(c.status)) active++;
+        });
+
+        setRecentCampaigns(campaigns.slice(0, 5));
+
+        // Group weekly activity visually based on campaigns creating dummy days for scale if needed
+        const mockWeekly = campaigns.slice(0, 7).map((c, i) => ({
+          name: new Date(c.created_at).toLocaleDateString("en-US", { weekday: "short" }),
+          sent: c.total_sent || 0,
+          opened: c.total_opened || 0,
+          clicked: c.total_clicked || 0
+        })).reverse();
+        setWeeklyData(mockWeekly);
+      }
+
+      setStats([
+        {
+          name: "Total Contacts",
+          value: (contactsCount || 0).toLocaleString(),
+          change: "Total",
+          icon: Users,
+          color: "text-blue-600",
+          bgColor: "bg-blue-100",
+        },
+        {
+          name: "Active Campaigns",
+          value: active.toString(),
+          change: "In Progress",
+          icon: Mail,
+          color: "text-purple-600",
+          bgColor: "bg-purple-100",
+        },
+        {
+          name: "Emails Sent",
+          value: sent.toLocaleString(),
+          change: "All Time",
+          icon: Send,
+          color: "text-green-600",
+          bgColor: "bg-green-100",
+        },
+        {
+          name: "Avg. Open Rate",
+          value: sent > 0 ? ((opens / sent) * 100).toFixed(1) + "%" : "0%",
+          change: "All Time",
+          icon: Eye,
+          color: "text-orange-600",
+          bgColor: "bg-orange-100",
+        },
+      ]);
+    }
+    loadDashboard();
+  }, []);
+
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -265,22 +294,22 @@ export default function DashboardPage() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                      {campaign.sent.toLocaleString()}
+                      {campaign.total_sent?.toLocaleString() || 0}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                       <div className="flex items-center gap-1">
                         <Eye className="h-4 w-4 text-green-500" />
-                        {campaign.opened.toLocaleString()}
+                        {campaign.total_opened?.toLocaleString() || 0}
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                       <div className="flex items-center gap-1">
                         <MousePointerClick className="h-4 w-4 text-purple-500" />
-                        {campaign.clicked.toLocaleString()}
+                        {campaign.total_clicked?.toLocaleString() || 0}
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                      {campaign.date}
+                      {new Date(campaign.created_at).toLocaleDateString()}
                     </td>
                   </tr>
                 ))}
